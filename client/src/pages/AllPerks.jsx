@@ -30,6 +30,23 @@ export default function AllPerks() {
 
 */
 
+  // Load all perks once on initial mount
+  useEffect(() => {
+    loadAllPerks()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Auto-search when searchQuery or merchantFilter changes (debounced)
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      // Avoid calling if we're already loading due to manual submit
+      loadAllPerks()
+    }, 400) // 400ms debounce for smoother UX
+
+    return () => clearTimeout(handle)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, merchantFilter])
+
   
   useEffect(() => {
     // Extract all merchant names from perks array
@@ -47,40 +64,47 @@ export default function AllPerks() {
     // This effect depends on [perks], so it re-runs whenever perks changes
   }, [perks]) // Dependency: re-run when perks array changes
 
-  
-  async function loadAllPerks() {
-    // Reset error state before new request
-    setError('')
-    
-    // Show loading indicator
-    setLoading(true)
-    
-    try {
-      // Make GET request to /api/perks/all with query parameters
-      const res = await api.get('/perks/all', {
-        params: {
-          // Only include search param if searchQuery is not empty
-          search: searchQuery.trim() || undefined,
-          // Only include merchant param if merchantFilter is not empty
-          merchant: merchantFilter.trim() || undefined
+  // ...existing code...
+async function loadAllPerks(
+  search = searchQuery.trim(),
+  merchant = merchantFilter.trim()
+) {
+  setError('')
+  setLoading(true)
+  try {
+    // Send params only when non-empty
+    const params = (!search && !merchant)
+      ? undefined
+      : {
+          ...(search ? { search } : {}),
+          ...(merchant ? { merchant } : {})
         }
-      })
-      
-      // Update perks state with response data
-      setPerks(res.data.perks)
-      
-    } catch (err) {
-      // Handle errors (network failure, server error, etc.)
-      console.error('Failed to load perks:', err)
-      setError(err?.response?.data?.message || 'Failed to load perks')
-      
-    } finally {
-      // This block runs whether try succeeds or catch handles error
-      // Always stop loading indicator
-      setLoading(false)
-    }
-  }
 
+    const res = await api.get('/perks/all', { params })
+    let data = res.data?.perks || []
+
+    // Client-side fallback if backend does not filter by merchant (names vs IDs)
+    if (merchant) {
+      data = data.filter(
+        p => p.merchant && p.merchant.toLowerCase() === merchant.toLowerCase()
+      )
+    }
+
+    // Client-side fallback for search
+    if (search) {
+      const sLower = search.toLowerCase()
+      data = data.filter(p => p.title?.toLowerCase().includes(sLower))
+    }
+
+    setPerks(data)
+  } catch (err) {
+    console.error('Failed to load perks:', err)
+    setError(err?.response?.data?.message || 'Failed to load perks')
+  } finally {
+    setLoading(false)
+  }
+}
+// ...existing code...
   // ==================== EVENT HANDLERS ====================
 
   
@@ -136,7 +160,8 @@ export default function AllPerks() {
                 type="text"
                 className="input"
                 placeholder="Enter perk name..."
-                
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
               />
               <p className="text-xs text-zinc-500 mt-1">
                 Auto-searches as you type, or press Enter / click Search
@@ -151,7 +176,8 @@ export default function AllPerks() {
               </label>
               <select
                 className="input"
-                
+                value={merchantFilter}
+                onChange={(e) => setMerchantFilter(e.target.value)}
               >
                 <option value="">All Merchants</option>
                 
@@ -217,7 +243,7 @@ export default function AllPerks() {
           
           <Link
             key={perk._id}
-           
+            to={`/perks/${perk._id}/view`}
             className="card hover:shadow-lg transition-shadow cursor-pointer"
           >
             {/* Perk Title */}
